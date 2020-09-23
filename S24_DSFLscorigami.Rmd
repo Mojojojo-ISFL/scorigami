@@ -1,0 +1,198 @@
+---
+title: "DSFL Scorigami"
+author: "Mojojojo"
+date: "September 22, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set up
+```{r packages, warning = FALSE, message=FALSE}
+library(ggplot2)
+library(viridis) #color-blind friendly palette for figures
+library(dplyr)
+library(reshape2) #melt function
+library(tidyverse)
+library(grid)
+library(gridExtra)
+```
+
+
+## Load data
+```{r data, warning = FALSE}
+#Read-in NSFL/ISFL game data
+data_DSFL <- read.csv("./DSFL_scorigami.csv", stringsAsFactors=FALSE, na.strings=c("","NA"))
+data_ISFL <- read.csv("./ISFL_scorigami.csv", stringsAsFactors=FALSE, na.strings=c("","NA"))
+colnames(data_DSFL)
+
+#Read-in spreadsheet of impossible scores
+data_impossible <- read.csv("./ImpossibleScores.csv", stringsAsFactors=FALSE, na.strings=c("","NA"))
+
+#Merge and create impossible flag
+data_full <- rbind(data_DSFL, data_impossible)
+data_full <- data_full %>% mutate(Imp = ifelse(WinType=="IMPOSSIBLE", "Yes", "No"))
+data_full$score_pair <- paste(data_full$FinalScore_won, data_full$FinalScore_lost, sep = "_")
+
+games_season <- group_by(data_full, Season)  %>% tally()
+
+```
+
+# Visualizing Scorigami Grids
+```{r vizgrids, warning=FALSE}
+#Filter dataframe down to unique score pairs
+unique.scores <- rownames(unique(data_full[,c('FinalScore_won', 'FinalScore_lost')]))
+data_unique <- data_full[rownames(data_full[,])%in%unique.scores, ]
+
+#Number and proportion of games resulting in scorigami per season
+scorigami_num <- group_by(data_unique, Season)  %>% tally()
+scorigami_num$p <- scorigami_num$n / games_season$n
+scorigami_num$n.tot <- games_season$n
+scorigami_num <- scorigami_num[1:24,]
+
+p1 <- ggplot(scorigami_num, aes(x=Season)) +
+        geom_col(aes(y=n)) +
+        #geom_line(aes(x=Season, y=n.tot)) + 
+        geom_text(aes(y=n, label=n), vjust=-0.5, size=4) + 
+        ggtitle("Number of DSFL games that are scorigami per season") +
+        xlab("Season") + ylab("Number of scorigami") +
+        scale_x_continuous(breaks=3:24, labels=3:24, expand=c(0,0)) +
+        scale_y_continuous(limits=c(0,45)) + #sec.axis = sec_axis(~.*2, name="Total games played")
+        theme_bw()
+
+p2 <- ggplot(scorigami_num) +
+        geom_col(aes(x=Season, y=p)) +
+        geom_text(aes(x=Season, y=p, label=round(p, 2)), vjust=-0.5, size=4) +
+        ggtitle("Proportion of DSFL games that end in scorigami per season") +
+        xlab("Season") + ylab("Proportion of games that \n end in scorigami") +
+        scale_y_continuous(limits=c(0,1)) +
+        scale_x_continuous(breaks=3:24, labels=3:24, expand=c(0,0)) +
+        theme_bw()
+
+p <- arrangeGrob(p1, p2)
+#ggsave(filename="DSFLscorigami_trends.jpg", plot=p, width=10, height=5, units="in", dpi=800)
+
+
+#Simple scorigami grid
+ggplot(data=data_unique, aes(x=FinalScore_won, y=FinalScore_lost, fill=Imp)) +
+  geom_tile() +
+  ggtitle("DSFL scorigami (S3-S24)") +
+  ylab("Losing team score") + xlab("Winning team score") +
+  #add grid lines and labels for every integer
+  scale_y_reverse(breaks=0:42, labels=0:42, expand=c(0,0), position="right") + 
+  scale_x_continuous(breaks=0:60, labels=0:60, expand=c(0,0), position="top") +
+  scale_fill_manual(values=c("darkgreen", "darkgrey")) +
+  theme_bw() +
+  theme(panel.grid.minor=element_blank(), legend.position="none")
+#ggsave(filename="DSFLscorigami_basic.jpg", plot=last_plot(), width=13, height=7, units="in", dpi=800)
+
+#Color seasons since last scorigami post (season 18 on)
+data_unique <- data_unique %>% mutate(Season2 = ifelse(Season < 18, '03-17', Season))
+
+palette <- viridis(8)
+ggplot(data=data_unique, aes(x=FinalScore_won, y=FinalScore_lost, fill=Season2)) +
+  geom_tile() +
+  ggtitle("DSFL scorigami (S3-S24)") +
+  ylab("Losing team score") + xlab("Winning team score") +
+  labs(fill="Season") +
+  #add grid lines and labels for every integer
+  scale_y_reverse(breaks=0:42, labels=0:42, expand=c(0,0), position="right") + 
+  scale_x_continuous(breaks=0:60, labels=0:60, expand=c(0,0), position="top") +
+  scale_fill_manual(values=palette, na.value="darkgrey") +
+  theme_bw() +
+  theme(panel.grid.minor=element_blank())
+#ggsave(filename="DSFLscorigami_season.jpg", plot=last_plot(), width=14, height=7, units="in", dpi=800)
+
+
+#Add color saturation for number of times score has happened
+data_full$score_pair <- as.factor(data_full$score_pair)
+score_count <- group_by(data_full, score_pair) %>% summarise(n=length(score_pair))
+score_count <- merge(score_count, subset(data_unique, select=c("score_pair","FinalScore_won", "FinalScore_lost","Imp")), by="score_pair")
+score_count <- score_count %>% mutate(n = ifelse(Imp=="Yes", NA, n))
+                     
+ggplot(data=score_count, aes(x=FinalScore_won, y=FinalScore_lost, fill=n)) +
+  geom_tile() +
+  ggtitle("DSFL scorigami (S3-S24)") +
+  ylab("Losing team score") + xlab("Winning team score") +
+  labs(fill="Count") +
+  #add grid lines and labels for every integer
+  scale_y_reverse(breaks=0:42, labels=0:42, expand=c(0,0), position="right") + 
+  scale_x_continuous(breaks=0:60, labels=0:60, expand=c(0,0), position="top") +
+  scale_fill_gradient(low = "lightgreen", high = "darkgreen") +
+  #scale_fill_manual(values=c("darkgreen", "darkgrey")) +
+  theme_bw() +
+  theme(panel.grid.minor=element_blank())
+#ggsave(filename="DSFLscorigami_count.jpg", plot=last_plot(), width=14, height=7, units="in", dpi=800)
+
+
+#Overlap NSFL/ISFL scorigami on DSFL scorigami
+data_full.I <- rbind(data_ISFL, data_impossible)
+data_full.I <- data_full.I %>% mutate(Imp = ifelse(WinType=="IMPOSSIBLE", "Yes", "No"))
+data_full.I$score_pair <- paste(data_full.I$FinalScore_won, data_full.I$FinalScore_lost, sep = "_")
+
+unique.scores.I <- rownames(unique(data_full.I[,c('FinalScore_won', 'FinalScore_lost')]))
+data_unique.I <- data_full.I[rownames(data_full.I[,])%in%unique.scores.I, ]
+data_unique.I$League <- "ISFL/NSFL"
+data_unique$League <- "DSFL"
+
+col.n <- c("Imp", "FinalScore_lost", "FinalScore_won", "League", "score_pair")
+data_unique.comb <- rbind(subset(data_unique, select=col.n), subset(data_unique.I, select=col.n))
+data_unique.comb <- data_unique.comb %>% mutate(League=ifelse(Imp=="Yes", NA, League))
+
+ggplot(data=data_unique.comb, aes(x=FinalScore_won, y=FinalScore_lost, fill=League)) +
+  geom_tile(alpha=.5) +
+  ggtitle("ISFL/NSFL scorigami versus DSFL scorigami") +
+  ylab("Losing team score") + xlab("Winning team score") +
+  #add grid lines and labels for every integer
+  scale_y_reverse(breaks=0:42, labels=0:42, expand=c(0,0), position="right") + 
+  scale_x_continuous(breaks=0:80, labels=0:80, expand=c(0,0), position="top") +
+  scale_fill_manual(values=c("#440154", "#73D055"), na.value="black") +
+  theme_bw() +
+  theme(panel.grid.minor=element_blank())
+
+#ggsave(filename="ISFL-DSFLscorigami.jpg", plot=last_plot(), width=13, height=7, units="in", dpi=800)
+
+data_unique.comb <- filter(data_unique.comb, Imp=="No")
+data_unique.comb.wide <- dcast(data_unique.comb, score_pair ~ League)
+
+#Count number of score pairs that exist in the DSFL but not in the ISFL/NSFL (i.e., are "NA")
+n1 <- length(which(is.na(data_unique.comb.wide$`ISFL/NSFL`)))
+n1
+
+#Count number of score pairs that exist in the ISFL/NSFL but not in the DSFL
+n2 <- length(which(is.na(data_unique.comb.wide$DSFL)))
+n2
+
+#Calculate number of score pairs that exist in both leagues (overlap)
+n3 <- length(data_unique.comb.wide$score_pair) - n1 - n2
+n3
+
+```
+
+# Stats for Notable Scorigami
+```{r notables, warning=FALSE}
+#Total score
+data_unique <- data_unique %>% mutate(TotalScore = FinalScore_won + FinalScore_lost)
+
+#Scorigami occurring in the playoffs:
+data_playoffs <- filter(data_unique, Week=="P") #P = playoff game
+data_ultimus <- filter(data_unique, Week=="U") #U = ultimus match
+data_ultimus[,1:7] #display recent Ultimus scorigami
+
+#Top scorigami team since S22 expansion
+data_S21on <- filter(data_unique, Season > 20)
+scorigami_teamwon <- group_by(data_S21on, Team_won)  %>% tally()
+scorigami_teamlost <- group_by(data_S21on, Team_lost)  %>% tally()
+
+scorigami_team <- merge(scorigami_teamwon, scorigami_teamlost, by.x="Team_won", by.y="Team_lost")
+scorigami_team <- scorigami_team %>% mutate(Total = n.x + n.y)
+colnames(scorigami_team) <- c("Team", "ScorigamisWon", "ScorigamisLost", "ScorigamisTotal")
+scorigami_team <- scorigami_team %>% mutate(Won_p = ScorigamisWon/ScorigamisTotal, Lost_p = ScorigamisLost/ScorigamisTotal)
+
+scorigami_team
+
+
+```
+
